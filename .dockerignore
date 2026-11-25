@@ -1,0 +1,7 @@
+*
+!pyproject.toml
+!README.md
+!LICENSE
+!NOTICE
+!tastr_sorceress/
+tastr_sorceress/__pycache__/
