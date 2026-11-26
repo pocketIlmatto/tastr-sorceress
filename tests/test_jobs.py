@@ -43,7 +43,8 @@ def test_happy_path(site, settings, paired, make_worker, fake_ydl):
     assert done["ext"] == "webm"
     assert done["info"] == {"id": "abc", "extractor": "youtube", "title": "A song", "duration": 200.0,
                             "uploader": "Someone", "artist": "Band",
-                            "webpage_url": "https://www.youtube.com/watch?v=abc", "upload_date": "20260101"}
+                            "webpage_url": "https://www.youtube.com/watch?v=abc", "upload_date": "20260101",
+                            "source": "yt-dlp", "steps": []}
     assert leftover(settings) == []
     for r in site.requests:
         if "/parts/" in r["path"]:

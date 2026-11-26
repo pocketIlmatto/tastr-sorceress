@@ -9,9 +9,10 @@ import os
 import re
 import socket
 import threading
-from dataclasses import dataclass
 from typing import Any, Iterable
 from urllib.parse import urlsplit
+
+from .plugins import Fetched, FetchFailed  # defined with the plugin interface; still importable from here
 
 os.environ.setdefault("YTDLP_NO_PLUGINS", "1")  # no yt-dlp plugins from the home folder or the working directory
 
@@ -38,21 +39,6 @@ INFO_FIELDS = ("id", "extractor", "title", "duration", "uploader", "artist", "we
 
 _ANSI = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
 _EXT = re.compile(r"^[a-z0-9]{1,10}$")
-
-
-class FetchFailed(Exception):
-    def __init__(self, reason: str, detail: str = ""):
-        super().__init__(f"{reason}: {detail}")
-        self.reason = reason
-        self.detail = detail[:500]
-
-
-@dataclass
-class Fetched:
-    path: str
-    size: int
-    ext: str
-    info: dict[str, Any]
 
 
 HOST_RE = re.compile(r"[a-z0-9.-]+")
@@ -103,13 +89,25 @@ def clean_limits(raw: object) -> dict[str, int]:
 PRIVATE_REFUSED = "refused to connect to a private or local address"
 
 _real_getaddrinfo = socket.getaddrinfo
-_guarded: set[int] = set()
+# Guarded threads -> a stack of the (host, port) pairs each guard lets through; the innermost guard decides.
+_guarded: dict[int, list[frozenset[tuple[str, str | None]]]] = {}
 _guard_lock = threading.Lock()
+
+
+def _exempt(host: object, port: object, local_hosts: frozenset[tuple[str, str | None]]) -> bool:
+    if not local_hosts or not isinstance(host, str):
+        return False
+    name = host.strip().lower().rstrip(".").strip("[]")
+    return (name, None) in local_hosts or (port is not None and (name, str(port)) in local_hosts)
 
 
 def _public_only_getaddrinfo(host, *args, **kwargs):
     results = _real_getaddrinfo(host, *args, **kwargs)
-    if threading.get_ident() not in _guarded:
+    stack = _guarded.get(threading.get_ident())
+    if not stack:
+        return results
+    port = args[0] if args else kwargs.get("port")
+    if _exempt(host, port, stack[-1]):
         return results
     for family, _type, _proto, _canon, sockaddr in results:
         if family in (socket.AF_INET, socket.AF_INET6):
@@ -120,20 +118,29 @@ def _public_only_getaddrinfo(host, *args, **kwargs):
 
 
 @contextlib.contextmanager
-def public_addresses_only():
+def public_addresses_only(local_hosts: Iterable[tuple[str, str | None]] = ()):
     """While a fetch runs in this thread, refuse every connection whose name resolves to a private, loopback,
     link-local or otherwise non-public address. yt-dlp follows redirects to the sites' own media hosts (which
     differ from the link's host), so redirects can't simply be turned off; this guard makes sure no request or
-    redirect from a fetch can reach the person's home network."""
+    redirect from a fetch can reach the person's home network.
+
+    `local_hosts` are (host, port) pairs the person listed in the config's [network] local_hosts (port None means
+    any port): a plugin may reach those although they are private. Guards nest; the innermost one decides, so
+    yt-dlp's own guard (with no exemptions) holds even inside a plugin's."""
     me = threading.get_ident()
+    allowed = frozenset(local_hosts)
     with _guard_lock:
-        _guarded.add(me)
+        _guarded.setdefault(me, []).append(allowed)
         socket.getaddrinfo = _public_only_getaddrinfo
     try:
         yield
     finally:
         with _guard_lock:
-            _guarded.discard(me)
+            stack = _guarded.get(me, [])
+            if stack:
+                stack.pop()
+            if not stack:
+                _guarded.pop(me, None)
 
 
 def map_error(message: str) -> str:
@@ -337,4 +344,4 @@ def fetch(
     ext = path.rsplit(".", 1)[-1].lower()
     if not _EXT.match(ext):
         raise FetchFailed("error", "the download has an unexpected file type")
-    return Fetched(path=path, size=size, ext=ext, info=pick_info(info))
+    return Fetched(path=path, ext=ext, info=pick_info(info), size=size)

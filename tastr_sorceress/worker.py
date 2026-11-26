@@ -17,6 +17,8 @@ from .config import Settings
 from .fetch import FetchFailed, clean_limits, fetch, url_allowed
 from .keystore import KeyStore
 from .pairing import pair
+from .pipeline import Pipeline, build_pipeline
+from .plugins import Job, clean_hints
 from .upload import LeaseLost, UploadError, job_path, sha256_file, upload_parts
 
 log = logging.getLogger(__name__)
@@ -53,6 +55,7 @@ class Worker:
         *,
         client: Client | None = None,
         keystore: KeyStore | None = None,
+        pipeline: Pipeline | None = None,
         fetcher: Callable[..., Any] = fetch,
         sleep: Callable[[float], None] = time.sleep,
         clock: Callable[[], float] = time.monotonic,
@@ -66,7 +69,6 @@ class Worker:
         self.settings = settings
         self.client = client or Client(settings.url)
         self.keystore = keystore or KeyStore(settings.data_dir)
-        self.fetcher = fetcher
         self.sleep = sleep
         self.clock = clock
         self.out = out
@@ -77,7 +79,13 @@ class Worker:
         self.part_attempts = part_attempts
         self.backoff = Backoff()
         self.lost_key = threading.Event()
-        self.cache_dir = os.path.join(settings.tmp_dir, "sorceress-cache")
+        self.cache_dir = self.cache_dir_for(settings)
+        # With no pipeline given, today's behaviour: yt-dlp alone (`fetcher` stands in for it in tests).
+        self.pipeline = pipeline or build_pipeline(cache_dir=self.cache_dir, fetcher=fetcher)
+
+    @staticmethod
+    def cache_dir_for(settings: Settings) -> str:
+        return os.path.join(settings.tmp_dir, "sorceress-cache")
 
     # --- key -------------------------------------------------------------
 
@@ -203,11 +211,14 @@ class Worker:
             self.report_failed(job_id, "not_allowed", "the link is not an https link to an allowed site")
             return
         limits = clean_limits(job.get("limits"))
+        # What plugins see of the job. Never the key.
+        plugin_job = Job(id=job_id, url=url, limits=dict(limits), hints=clean_hints(job.get("hints")),
+                         allow_hosts=tuple(str(h) for h in server_hosts) if server_hosts is not None else None)
         log.info("Job %s: fetching %s", job_id, url)
         os.makedirs(self.settings.tmp_dir, exist_ok=True)
         workdir = tempfile.mkdtemp(prefix=JOB_DIR_PREFIX, dir=self.settings.tmp_dir)
         try:
-            fetched = self.fetcher(url, limits, workdir, server_hosts=server_hosts, cache_dir=self.cache_dir)
+            fetched = self.pipeline.run(plugin_job, workdir)
             sha = sha256_file(fetched.path)
             parts = upload_parts(self.client, job_id, fetched.path, fetched.size, limits["part_bytes"],
                                  attempts=self.part_attempts, sleep=self.sleep)
@@ -216,8 +227,8 @@ class Worker:
             if resp is None:
                 log.error("Job %s: could not report it done; the site will hand it out again", job_id)
             elif resp.status == 200:
-                log.info("Job %s done: %d bytes in %d parts (deposit %s)", job_id, fetched.size, parts,
-                         resp.data.get("deposit_id", "?"))
+                log.info("Job %s done: %d bytes in %d parts from %s (deposit %s)", job_id, fetched.size, parts,
+                         fetched.info.get("source"), resp.data.get("deposit_id", "?"))
             elif resp.status == 409:
                 log.warning("Job %s: the lease was lost before it was done (%s)", job_id, resp.describe())
             else:
@@ -264,6 +275,7 @@ class Worker:
         self.clean_tmp()
         log.info("tastr-sorceress %s (yt-dlp %s) for %s as %r", __version__, yt_dlp_version(),
                  self.settings.url, self.settings.name)
+        log.info("Fetching with %s", self.pipeline.describe())
         hb_stop = threading.Event()
         hb = threading.Thread(target=self._heartbeat_loop, args=(hb_stop,), name="heartbeat", daemon=True)
         hb.start()

@@ -9,8 +9,9 @@ import sys
 
 from . import __version__
 from .api import Client, NetworkError, Unauthorized
-from .config import ConfigError, Settings
+from .config import ConfigError, Settings, load_fetcher_config
 from .keystore import KeyStore
+from .pipeline import Pipeline, build_pipeline
 from .worker import Worker, yt_dlp_version
 
 
@@ -22,31 +23,40 @@ def _setup_logging(verbose: bool) -> None:
     )
 
 
+def _start_pipeline(settings: Settings, verbose: bool) -> Pipeline:
+    """Read the config file, set the log level it asks for, and start its sources and steps. Raises ConfigError."""
+    config = load_fetcher_config(settings)
+    if not verbose:
+        logging.getLogger().setLevel(config.log_level.upper())
+    return build_pipeline(config, cache_dir=Worker.cache_dir_for(settings))
+
+
 def _on_sigterm(signum, frame):  # noqa: ARG001
     raise KeyboardInterrupt
 
 
-def cmd_run(settings: Settings) -> int:
+def cmd_run(settings: Settings, pipeline: Pipeline) -> int:
     signal.signal(signal.SIGTERM, _on_sigterm)
     try:
-        Worker(settings).run()
+        Worker(settings, pipeline=pipeline).run()
     except KeyboardInterrupt:
         logging.getLogger(__name__).info("Stopping.")
     return 0
 
 
-def cmd_status(settings: Settings) -> int:
+def cmd_status(settings: Settings, pipeline: Pipeline) -> int:
     store = KeyStore(settings.data_dir)
     key = store.load()
     print(f"tastr-sorceress {__version__}, yt-dlp {yt_dlp_version()}")
     print(f"site:  {settings.url}")
     print(f"name:  {settings.name}")
+    print(f"fetch: {pipeline.describe()}")
     if not key:
         print("state: not paired (run the helper and confirm the code it shows)")
         return 1
     client = Client(settings.url, key)
     try:
-        worker = Worker(settings, client=client, keystore=store)
+        worker = Worker(settings, client=client, keystore=store, pipeline=pipeline)
         resp = worker.heartbeat()
     except Unauthorized:
         print("state: the site no longer knows this helper's key; it will pair again when it runs")
@@ -64,7 +74,7 @@ def cmd_status(settings: Settings) -> int:
     return 0
 
 
-def cmd_unpair(settings: Settings) -> int:
+def cmd_unpair(settings: Settings, pipeline: Pipeline | None) -> int:  # noqa: ARG001 - no pipeline needed
     KeyStore(settings.data_dir).delete()
     print("The key on this machine is deleted. Also remove the helper on "
           f"{settings.url}/bank/sorceress so the site forgets it.")
@@ -86,7 +96,9 @@ def main(argv: list[str] | None = None) -> int:
     _setup_logging(args.verbose)
     try:
         settings = Settings.from_env()
+        # unpair works even with a broken config file, so a mistake there can't stop it.
+        pipeline = None if args.command == "unpair" else _start_pipeline(settings, args.verbose)
     except ConfigError as e:
         print(f"tastr-sorceress: {e}", file=sys.stderr)
         return 2
-    return {"run": cmd_run, "status": cmd_status, "unpair": cmd_unpair}[args.command](settings)
+    return {"run": cmd_run, "status": cmd_status, "unpair": cmd_unpair}[args.command](settings, pipeline)
