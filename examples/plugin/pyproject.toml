@@ -1,0 +1,23 @@
+# An example plugin for tastr-sorceress: one source and one step, found through entry points.
+# Install it into the helper's image with the Dockerfile next to this file.
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sorceress-example-plugin"
+version = "0.1.0"
+description = "Example tastr-sorceress plugin: a local-folder source and a step that fills in track details."
+license = "MIT"
+requires-python = ">=3.12"
+dependencies = []  # tastr-sorceress itself is already in the image
+
+# The names on the left are what you write in the helper's config file.
+[project.entry-points."tastr_sorceress.sources"]
+folder = "sorceress_example:FolderSource"
+
+[project.entry-points."tastr_sorceress.steps"]
+fill-from-hints = "sorceress_example:FillFromHints"
+
+[tool.setuptools]
+packages = ["sorceress_example"]

@@ -1,0 +1,23 @@
+# Example: copy this file, set TASTR_URL to your Tastr site, then `docker compose up -d`.
+services:
+  sorceress:
+    image: ghcr.io/pocketilmatto/tastr-sorceress:latest
+    restart: unless-stopped
+    environment:
+      TASTR_URL: https://tastr.example.com  # your Tastr site (https only)
+      SORCERESS_NAME: Pi in the hall        # how this helper is listed on the site
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    tmpfs:
+      # Audio waits here only while it is being fetched and uploaded (up to 1 GB per link).
+      # A tmpfs lives in memory; on a small device, see the README for using a disk folder.
+      - /tmp:size=1536m,mode=1777
+    volumes:
+      - sorceress-data:/data  # holds only the helper's key
+      # Optional: change how the helper fetches (see "Customising your fetcher" in the README).
+      # - ./config.toml:/data/config.toml:ro
+    # No ports: the helper only makes outgoing connections.
+
+volumes:
+  sorceress-data:

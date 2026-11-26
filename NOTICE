@@ -1,0 +1,16 @@
+tastr-sorceress
+Copyright (c) 2026 the tastr-sorceress authors. Released under the MIT License (see LICENSE).
+
+This repository holds only tastr-sorceress's own code. The container image built from it
+also installs the following third-party software, each under its own terms:
+
+- yt-dlp (https://github.com/yt-dlp/yt-dlp): The Unlicense.
+- yt-dlp-ejs (https://github.com/yt-dlp/ejs), installed with yt-dlp[default]: The Unlicense;
+  its bundled JavaScript dependencies are under the MIT and ISC licences.
+- deno (https://github.com/denoland/deno), the JavaScript runtime yt-dlp uses for YouTube,
+  installed from the `deno` package on PyPI: MIT License.
+
+yt-dlp[default] also pulls in its usual helper libraries (among them requests, urllib3,
+certifi, brotli, websockets, pycryptodomex and mutagen), and the image is based on the
+official python:3.12-slim image (Debian and CPython). Their licences ship inside the image
+with each package.

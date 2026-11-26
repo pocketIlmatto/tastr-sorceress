@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tastr-sorceress"
+dynamic = ["version"]
+description = "Fetches audio from music links for your own Tastr account, from your home connection."
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE", "NOTICE"]
+requires-python = ">=3.12"
+dependencies = ["yt-dlp>=2025.11.12"]
+
+[project.optional-dependencies]
+test = ["pytest>=8"]
+
+[project.scripts]
+tastr-sorceress = "tastr_sorceress.cli:main"
+
+[tool.setuptools]
+packages = ["tastr_sorceress"]
+
+[tool.setuptools.dynamic]
+version = { attr = "tastr_sorceress.__version__" }
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-p no:cacheprovider"
