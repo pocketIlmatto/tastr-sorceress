@@ -166,3 +166,71 @@ def test_a_site_without_the_log_route_still_gets_the_job(site, settings, paired,
     make_worker(fetcher=functools.partial(fetch, ydl_class=fake_ydl)).step()
     assert site.done["job1"]
     assert len([p for p in site.paths("POST") if p.endswith("/log")]) == 1  # gave up after the first 404
+
+
+class SlowClient:
+    """Stands in for the site client: each call takes `delay` seconds and answers `answers` in turn (then 200)."""
+
+    def __init__(self, delay=0.0, answers=()):
+        import threading
+
+        self.delay, self.answers, self.calls = delay, list(answers), []
+        self.lock = threading.Lock()
+
+    def call(self, method, path, body=None, **kw):
+        import time
+
+        from tastr_sorceress.api import Response
+
+        with self.lock:
+            self.calls.append(body)
+        time.sleep(self.delay)
+        status, wait = self.answers.pop(0) if self.answers else (200, None)
+        return Response(status, {}, wait)
+
+
+def test_a_slow_site_never_holds_up_the_job():
+    import time
+
+    from tastr_sorceress.joblog import SiteLog
+
+    client = SlowClient(delay=2.0)
+    log = logging.getLogger("tastr_sorceress.fetch")
+    root = logging.getLogger()
+    old = root.level
+    root.setLevel(logging.INFO)
+    try:
+        started = time.monotonic()
+        with SiteLog(client, "job1", send_every_s=0.01, finish_s=0.2):
+            for i in range(120):  # more than two batches: the job thread never waits for a send
+                log.info("line %d", i)
+            in_job = time.monotonic() - started
+        total = time.monotonic() - started
+    finally:
+        root.setLevel(old)
+    assert in_job < 0.5 and total < 1.0
+
+
+def test_the_log_backs_off_when_the_site_asks():
+    import time
+
+    from tastr_sorceress.joblog import SiteLog
+
+    client = SlowClient(answers=[(429, 120.0)])
+    log = logging.getLogger("tastr_sorceress.fetch")
+    root = logging.getLogger()
+    old = root.level
+    root.setLevel(logging.INFO)
+    try:
+        with SiteLog(client, "job1", send_every_s=0.01, finish_s=0.5) as site_log:
+            log.info("first")
+            deadline = time.monotonic() + 2
+            while not client.calls and time.monotonic() < deadline:
+                time.sleep(0.01)
+            for i in range(60):
+                log.info("more %d", i)
+            time.sleep(0.2)
+    finally:
+        root.setLevel(old)
+    assert len(client.calls) == 1  # nothing more sent during the pause the site asked for
+    assert site_log.dropped == 61 and site_log.sent == 0
