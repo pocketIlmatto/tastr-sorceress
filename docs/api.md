@@ -49,7 +49,7 @@ can remove one, which revokes its key at once. The site's admin decides who may 
   `Content-Length` required, <= part_bytes; every part but the last >= 5 MiB, the storage's multipart minimum) ->
   200 `{"n": 1, "bytes": 33554432}`. 409 `not_your_job` / `lease_lost`; 413 `too_big` (part or running total > max_bytes; a total found over it once parts sent at the same time are recorded fails the job); 400 `bad_part` for a part number past what max_bytes can need.
   Re-sending part n replaces it. Each accepted part renews the lease for another `lease_s`. The server streams the body into a multipart upload; it never buffers a whole part.
-- `POST /jobs/<id>/done` `{"parts": 3, "bytes": 81234567, "sha256": "<hex>", "ext": "webm|m4a|opus|mp3|...",
+- `POST /jobs/<id>/done` `{"parts": 3, "bytes": 81234567, "sha256": "<hex>", "ext": "webm|m4a|mp4|opus|ogg|mp3|aac|flac|wav",
   "info": {"id", "extractor", "title", "duration", "uploader", "artist", "webpage_url", "upload_date",
   "source", "steps"}}` ->
   200 `{"deposit_id": "..."}`. 422 `size_mismatch` when bytes != sum of parts. The server completes the multipart
