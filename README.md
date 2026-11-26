@@ -75,8 +75,9 @@ Or let a tool such as [Watchtower](https://containrrr.dev/watchtower/) do it for
 
 ## Checking the image
 
-Every image is built by GitHub Actions from this repository and comes with a signed build provenance attestation.
-To check that an image you pulled was built here:
+Use only `ghcr.io/pocketilmatto/tastr-sorceress`, never a copy someone passes around: a changed helper holds your
+key and could put any audio in your bank. Every image is built by GitHub Actions from this repository and comes
+with a signed build provenance attestation. To check that an image you pulled was built here:
 
 ```sh
 gh attestation verify oci://ghcr.io/pocketilmatto/tastr-sorceress:latest --repo pocketIlmatto/tastr-sorceress

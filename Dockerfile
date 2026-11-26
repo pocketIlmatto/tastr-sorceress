@@ -38,7 +38,8 @@ ENV SORCERESS_DATA=/data \
     HOME=/tmp \
     XDG_CACHE_HOME=/tmp/.cache \
     DENO_DIR=/tmp/.deno \
-    DENO_NO_UPDATE_CHECK=1
+    DENO_NO_UPDATE_CHECK=1 \
+    YTDLP_NO_PLUGINS=1
 
 USER 10001:10001
 WORKDIR /tmp

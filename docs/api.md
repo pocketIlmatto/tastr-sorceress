@@ -7,7 +7,12 @@ together with the site.
 - Base URL: `https://<tastr host>/pub/sorceress/v1`. Routes under `/pub/` are public; auth is the helper key.
 - Helper auth: `Authorization: Bearer <key>` on everything except `pair/*`. Key = 32 random bytes, urlsafe base64,
   prefixed `sor_`. Server stores only sha256(key). Unknown or revoked key -> 401 `{"error":"unpaired"}`; the helper
-  stops, deletes its key and starts pairing again.
+  stops, deletes its key and starts pairing again. A person the site's admin has switched off -> 403
+  `{"error":"not_allowed"}` on every keyed route; the helper keeps its key and asks again much later (it works once
+  they are switched back on).
+- Every link the site queues passes its allowlist, which also refuses a backslash, whitespace or control characters
+  anywhere, a host with characters other than letters, digits, dots and hyphens, userinfo, and ports other than 443.
+  The helper checks the same.
 - JSON in and out (except part bodies). Errors: `{"error": "<code>", "detail": "<sentence>"}`.
 - Off unless the site has helpers switched on: then every route answers 404.
 - User-Agent: `tastr-sorceress/<version>`.
@@ -38,7 +43,7 @@ can remove one, which revokes its key at once. The site's admin decides who may 
   `youtube.com, youtu.be, music.youtube.com, soundcloud.com, bandcamp.com, mixcloud.com`.
 - `PUT /jobs/<id>/parts/<n>` (n = 1, 2, ...; body = raw bytes, `Content-Type: application/octet-stream`,
   `Content-Length` required, <= part_bytes; every part but the last >= 5 MiB, the storage's multipart minimum) ->
-  200 `{"n": 1, "bytes": 33554432}`. 409 `not_your_job` / `lease_lost`; 413 `too_big` (part or running total > max_bytes).
+  200 `{"n": 1, "bytes": 33554432}`. 409 `not_your_job` / `lease_lost`; 413 `too_big` (part or running total > max_bytes; a total found over it once parts sent at the same time are recorded fails the job); 400 `bad_part` for a part number past what max_bytes can need.
   Re-sending part n replaces it. Each accepted part renews the lease for another `lease_s`. The server streams the body into a multipart upload; it never buffers a whole part.
 - `POST /jobs/<id>/done` `{"parts": 3, "bytes": 81234567, "sha256": "<hex>", "ext": "webm|m4a|opus|mp3|...",
   "info": {"id", "extractor", "title", "duration", "uploader", "artist", "webpage_url", "upload_date"}}` ->

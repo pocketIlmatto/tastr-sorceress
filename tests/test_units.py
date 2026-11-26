@@ -71,6 +71,11 @@ def test_keystore_ignores_garbage(tmp_path):
         ("https://you tube.com/", False),
         ("javascript:alert(1)", False),
         (None, False),
+        # what parsers read differently: a backslash, odd host characters
+        ("https://evil.example\\.bandcamp.com/track/x", False),
+        ("https://evil.example\\@youtube.com/x", False),
+        ("https://y\u00f6utube.com.youtube.com/x", False),
+        ("https://youtube.com:443/watch?v=abc", True),
     ],
 )
 def test_url_allowed(url, ok):
@@ -281,3 +286,15 @@ def test_private_address_refusal_maps_to_not_allowed():
     from tastr_sorceress.fetch import PRIVATE_REFUSED, map_error
 
     assert map_error(f"ERROR: Unable to download webpage: [Errno -2] {PRIVATE_REFUSED} (router.lan)") == "not_allowed"
+
+
+def test_next_job_waits_long_when_switched_off(site, settings, make_worker, rec):
+    from tastr_sorceress.worker import NOT_ON_WAIT
+
+    KeyStore(settings.data_dir).save("sor_good")
+    site.valid_keys.add("sor_good")
+    site.override["GET /jobs/next"] = (403, {"error": "not_allowed"})
+    w = make_worker()
+    w.step()
+    assert [s for s in rec.sleeps if s > 0] == [NOT_ON_WAIT]
+    assert KeyStore(settings.data_dir).load() == "sor_good"  # the key is kept: it works again once switched on

@@ -30,8 +30,9 @@ account on a Tastr site. The only interface to the site is the HTTP API in [docs
 - The allowlist check comes first and is enforced locally as well as on the site; yt-dlp stays limited to the
   extractors for allowlisted sites (never the generic extractor), with no postprocessors and no ffmpeg.
 - Nothing is kept but the key: temporary audio is deleted after every job, whatever the outcome.
-- Standard library plus yt-dlp only. No new runtime dependencies without a good reason; add any with terms of their
-  own to [NOTICE](NOTICE).
+- Standard library plus yt-dlp only in the package; the image adds what yt-dlp itself needs (its default extras and
+  Deno for YouTube). No new runtime dependencies without a good reason; add any with terms of their own to
+  [NOTICE](NOTICE). yt-dlp plugins stay off (`YTDLP_NO_PLUGINS`).
 - Back off on errors; never hammer the site.
 - Workflows: least-privilege `permissions:` per job, third-party actions pinned by full commit SHA, and never
   interpolate `${{ github.event.* }}` text into `run:`.

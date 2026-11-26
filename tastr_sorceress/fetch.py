@@ -13,6 +13,8 @@ from dataclasses import dataclass
 from typing import Any, Iterable
 from urllib.parse import urlsplit
 
+os.environ.setdefault("YTDLP_NO_PLUGINS", "1")  # no yt-dlp plugins from the home folder or the working directory
+
 log = logging.getLogger(__name__)
 
 # The same list the site enforces (docs/api.md). A link must match it here AND the
@@ -53,6 +55,9 @@ class Fetched:
     info: dict[str, Any]
 
 
+HOST_RE = re.compile(r"[a-z0-9.-]+")
+
+
 def _match(host: str, entries: Iterable[str]) -> bool:
     for entry in entries:
         entry = str(entry).strip().lower().rstrip(".")
@@ -64,8 +69,8 @@ def _match(host: str, entries: Iterable[str]) -> bool:
 def url_allowed(url: object, server_hosts: Iterable[str] | None = None) -> bool:
     """https only, no login or odd port, host equal to or under an allowed entry,
     on both this helper's list and the site's list for the job."""
-    if not isinstance(url, str) or len(url) > 2048 or not url.isprintable() or " " in url:
-        return False
+    if not isinstance(url, str) or len(url) > 2048 or not url.isprintable() or " " in url or "\\" in url:
+        return False  # a backslash is read as part of the host by some parsers and as a path by others
     try:
         parts = urlsplit(url)
         port = parts.port
@@ -76,6 +81,8 @@ def url_allowed(url: object, server_hosts: Iterable[str] | None = None) -> bool:
     if port not in (None, 443):
         return False
     host = (parts.hostname or "").lower().rstrip(".")
+    if "@" in parts.netloc or not HOST_RE.fullmatch(host or "-"):
+        return False
     if not host or not _match(host, ALLOW_HOSTS):
         return False
     if server_hosts is not None and not _match(host, server_hosts):

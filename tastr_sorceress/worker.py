@@ -152,6 +152,12 @@ class Worker:
             log.warning("The site answered 404: helpers are switched off there. Asking again in %.0f s", NOT_ON_WAIT)
             self.sleep(NOT_ON_WAIT)
             return None
+        if resp.status == 403:
+            # An admin switched fetching off for this account. The key stays; it works again once switched back on.
+            log.warning("The site answered 403: fetching is switched off for this account. Asking again in %.0f s",
+                        NOT_ON_WAIT)
+            self.sleep(NOT_ON_WAIT)
+            return None
         if resp.status == 429:
             self.sleep(resp.retry_after or 60.0)
             return None
