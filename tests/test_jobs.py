@@ -212,3 +212,23 @@ def test_one_job_at_a_time(site, settings, paired, make_worker, fake_ydl):
     assert list(site.done) == ["a"]
     w.step()
     assert list(site.done) == ["a", "b"]
+
+
+def test_done_report_honours_retry_after(site, settings, paired, make_worker, fake_ydl, rec):
+    fake_ydl.payload = b"x" * 100
+    site.done_script.append((503, 120))
+    site.add_job()
+    worker_with(make_worker, fake_ydl).step()
+    assert site.done["job1"]["bytes"] == 100
+    assert max(rec.sleeps) >= 120
+
+
+def test_done_report_caps_a_huge_retry_after(site, settings, paired, make_worker, fake_ydl, rec):
+    from tastr_sorceress.worker import MAX_REPORT_WAIT
+
+    fake_ydl.payload = b"x" * 100
+    site.done_script.append((429, 99999))
+    site.add_job()
+    worker_with(make_worker, fake_ydl).step()
+    assert site.done["job1"]["bytes"] == 100
+    assert max(rec.sleeps) == MAX_REPORT_WAIT

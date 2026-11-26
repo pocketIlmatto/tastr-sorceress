@@ -44,6 +44,7 @@ class FakeTastr:
         self.jobs: deque = deque()
         self.parts: dict[str, dict[int, bytes]] = {}
         self.part_script: deque = deque()  # status codes to answer part PUTs with, before 200
+        self.done_script: deque = deque()  # (status, Retry-After) answers to done reports, before 200
         self.done: dict[str, dict] = {}
         self.failed: dict[str, dict] = {}
         self.heartbeats: list[dict] = []
@@ -84,9 +85,11 @@ class FakeTastr:
             def log_message(self, *a):
                 pass
 
-            def _send(self, status, body=None):
+            def _send(self, status, body=None, retry_after=None):
                 raw = b"" if body is None else json.dumps(body).encode()
                 self.send_response(status)
+                if retry_after is not None:
+                    self.send_header("Retry-After", str(retry_after))
                 if body is not None:
                     self.send_header("Content-Type", "application/json")
                 self.send_header("Content-Length", str(len(raw)))
@@ -140,6 +143,9 @@ class FakeTastr:
                     fake.parts.setdefault(parts[2], {})[int(parts[4])] = raw
                     return self._send(200, {"n": int(parts[4]), "bytes": len(raw)})
                 if len(parts) == 4 and parts[3] == "done":
+                    if fake.done_script:
+                        status, wait = fake.done_script.popleft()
+                        return self._send(status, {"error": "scripted"}, retry_after=wait)
                     fake.done[parts[2]] = body
                     return self._send(200, {"deposit_id": "d1"})
                 if len(parts) == 4 and parts[3] == "failed":

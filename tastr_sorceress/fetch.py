@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+import contextlib
+import ipaddress
 import logging
 import os
 import re
+import socket
+import threading
 from dataclasses import dataclass
 from typing import Any, Iterable
 from urllib.parse import urlsplit
@@ -89,9 +93,47 @@ def clean_limits(raw: object) -> dict[str, int]:
     return limits
 
 
+PRIVATE_REFUSED = "refused to connect to a private or local address"
+
+_real_getaddrinfo = socket.getaddrinfo
+_guarded: set[int] = set()
+_guard_lock = threading.Lock()
+
+
+def _public_only_getaddrinfo(host, *args, **kwargs):
+    results = _real_getaddrinfo(host, *args, **kwargs)
+    if threading.get_ident() not in _guarded:
+        return results
+    for family, _type, _proto, _canon, sockaddr in results:
+        if family in (socket.AF_INET, socket.AF_INET6):
+            addr = ipaddress.ip_address(str(sockaddr[0]).split("%", 1)[0])
+            if not addr.is_global:
+                raise socket.gaierror(f"{PRIVATE_REFUSED} ({host})")
+    return results
+
+
+@contextlib.contextmanager
+def public_addresses_only():
+    """While a fetch runs in this thread, refuse every connection whose name resolves to a private, loopback,
+    link-local or otherwise non-public address. yt-dlp follows redirects to the sites' own media hosts (which
+    differ from the link's host), so redirects can't simply be turned off; this guard makes sure no request or
+    redirect from a fetch can reach the person's home network."""
+    me = threading.get_ident()
+    with _guard_lock:
+        _guarded.add(me)
+        socket.getaddrinfo = _public_only_getaddrinfo
+    try:
+        yield
+    finally:
+        with _guard_lock:
+            _guarded.discard(me)
+
+
 def map_error(message: str) -> str:
     """Turn a yt-dlp error message into one of the reasons in docs/api.md."""
     low = _ANSI.sub("", message).lower().replace("’", "'")
+    if PRIVATE_REFUSED in low:
+        return "not_allowed"
     if "not a bot" in low or ("sign in to confirm" in low and "age" not in low) or "http error 429" in low:
         return "bot_check"
     if "no suitable extractor" in low or "unsupported url" in low:
@@ -255,7 +297,7 @@ def fetch(
                 state["too_big"] = True
                 raise TooBig()
 
-    with ydl_class(ydl_options(workdir, cache_dir, max_bytes, hook)) as ydl:
+    with public_addresses_only(), ydl_class(ydl_options(workdir, cache_dir, max_bytes, hook)) as ydl:
         try:
             info = ydl.extract_info(url, download=False)
         except DownloadError as e:

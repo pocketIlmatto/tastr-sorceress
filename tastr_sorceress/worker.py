@@ -26,6 +26,7 @@ HEARTBEAT_S = 300.0
 LONG_POLL_S = 25
 MIN_POLL_GAP = 5.0  # if the site answers "no job" at once, wait this long before asking again
 NOT_ON_WAIT = 300.0
+MAX_REPORT_WAIT = 600.0  # the longest Retry-After a done/failed report honours between tries
 
 
 def yt_dlp_version() -> str:
@@ -162,6 +163,7 @@ class Worker:
     def _post(self, path: str, body: dict[str, Any], attempts: int = 4) -> Response | None:
         backoff = Backoff(base=2.0, cap=60.0)
         for attempt in range(1, attempts + 1):
+            wait = 0.0
             try:
                 resp = self.client.call("POST", path, body)
             except NetworkError as e:
@@ -170,8 +172,9 @@ class Worker:
                 if resp.status < 500 and resp.status != 429:
                     return resp
                 problem = resp.describe()
+                wait = min(resp.retry_after or 0.0, MAX_REPORT_WAIT)
             if attempt < attempts:
-                delay = backoff.next_delay()
+                delay = max(backoff.next_delay(), wait)
                 log.warning("Reporting to the site failed (%s); retrying in %.0f s", problem, delay)
                 self.sleep(delay)
         log.error("Could not report to the site after %d tries", attempts)

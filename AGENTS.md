@@ -25,7 +25,8 @@ account on a Tastr site. The only interface to the site is the HTTP API in [docs
 ## Rules for the helper
 
 - It talks only to the configured Tastr site (`TASTR_URL`, https only) and the music sites it fetches from: no
-  storage, compute or telemetry services, no redirects followed, no open ports.
+  storage, compute or telemetry services, no redirects followed on calls to the site, no connections from a fetch
+  to private or local addresses (yt-dlp may follow the music sites' redirects to their media hosts), no open ports.
 - The allowlist check comes first and is enforced locally as well as on the site; yt-dlp stays limited to the
   extractors for allowlisted sites (never the generic extractor), with no postprocessors and no ffmpeg.
 - Nothing is kept but the key: temporary audio is deleted after every job, whatever the outcome.

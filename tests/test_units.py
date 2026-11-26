@@ -257,3 +257,27 @@ def test_run_loop_stops(site, settings, make_worker):
     w.run(stop)
     assert not os.path.exists(stale)
     assert site.heartbeats
+
+
+def test_fetch_thread_cannot_resolve_private_addresses():
+    import socket
+    import threading
+
+    from tastr_sorceress.fetch import PRIVATE_REFUSED, public_addresses_only
+
+    with public_addresses_only():
+        for host in ("127.0.0.1", "10.0.0.5", "192.168.1.1", "169.254.169.254", "::1"):
+            with pytest.raises(socket.gaierror, match=PRIVATE_REFUSED):
+                socket.getaddrinfo(host, 443)
+        seen = []
+        other = threading.Thread(target=lambda: seen.append(socket.getaddrinfo("127.0.0.1", 443)))
+        other.start()
+        other.join()
+        assert seen and seen[0]  # other threads (the heartbeat, the site's own calls) are not limited
+    assert socket.getaddrinfo("127.0.0.1", 443)  # and the limit ends with the fetch
+
+
+def test_private_address_refusal_maps_to_not_allowed():
+    from tastr_sorceress.fetch import PRIVATE_REFUSED, map_error
+
+    assert map_error(f"ERROR: Unable to download webpage: [Errno -2] {PRIVATE_REFUSED} (router.lan)") == "not_allowed"
