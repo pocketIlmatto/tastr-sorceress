@@ -48,6 +48,7 @@ class FakeTastr:
         self.done: dict[str, dict] = {}
         self.failed: dict[str, dict] = {}
         self.heartbeats: list[dict] = []
+        self.logs: dict[str, list[dict]] = {}  # job id -> lines sent to POST /jobs/<id>/log
         self.override: dict[str, tuple[int, dict]] = {}  # "METHOD path" -> (status, body), always
         self.server = ThreadingHTTPServer(("127.0.0.1", 0), self._handler())
         self.thread = threading.Thread(target=self.server.serve_forever, kwargs={"poll_interval": 0.05}, daemon=True)
@@ -148,6 +149,10 @@ class FakeTastr:
                         return self._send(status, {"error": "scripted"}, retry_after=wait)
                     fake.done[parts[2]] = body
                     return self._send(200, {"deposit_id": "d1"})
+                if len(parts) == 4 and parts[3] == "log":
+                    fake.logs.setdefault(parts[2], []).extend(body["lines"])
+                    assert len(body["lines"]) <= 50
+                    return self._send(200, {"kept": len(body["lines"])})
                 if len(parts) == 4 and parts[3] == "failed":
                     fake.failed[parts[2]] = body
                     return self._send(200, {})

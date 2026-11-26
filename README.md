@@ -120,13 +120,30 @@ local_hosts = ["lidarr.lan", "192.168.1.20:8686"]
 
 A step that fails, or a source that fails in a way other than "not found", fails the job, and the site shows why.
 
+### Following a job
+
+Everything the helper logs while it works on a job is also sent to the site, so the job's page under **Your
+fetchers** shows each step: the job taken, what the search found, the format picked, the download at each quarter,
+each part uploaded, and why it failed. With `SORCERESS_LOG_LEVEL=debug` (or `--verbose`) the helper logs, and
+sends, more: yt-dlp's own output and each file's sha256. Only the job's own lines go; the key is never logged.
+
+### Moments without a link
+
+When you send a moment with no link to your fetchers (a Shazam capture, say), the site gives the helper a search
+job instead: the song's title and artist (yours, if you corrected them), any extra words you added such as
+"extended mix", and the track's length when it is known. The helper searches YouTube for them, lists every result
+in the job's log, and picks the one closest to the track's length. When no result is within 10 seconds (or 5 %)
+of it, the job fails rather than saving the wrong version: add words or a link and send it again. Without a known
+length it takes the first result with the title in it. The link it picks passes the allowlist like any other.
+
 ### What always holds
 
 Whatever sources and steps you use, the helper keeps these rules, so a custom setup can't hurt your account or
 your network by mistake:
 
-- The link must pass the allowlist before any source runs. A source that searches for the song instead gets the
-  same job, with the title, artist and length the site knows as hints.
+- The link must pass the allowlist before any source runs; for a search job, that is the link the YouTube search
+  picked. A source that searches for the song instead gets the same job, with the title, artist, your extra words
+  and length the site knows as hints.
 - Before upload the file is checked again: it must be within the site's size and length limits, and a type the
   site takes (webm, m4a, mp4, opus, ogg, mp3, aac, flac or wav).
 - Temporary files are deleted after every job. Only the copy step's folder keeps anything.
@@ -179,7 +196,8 @@ gh attestation verify oci://ghcr.io/pocketilmatto/tastr-sorceress:latest --repo 
 - **An allowlist.** It only fetches `https://` links on youtube.com, youtu.be, music.youtube.com, soundcloud.com,
   bandcamp.com and mixcloud.com (and their subdomains). It checks every link itself before doing anything, even
   though the site checks too, and yt-dlp is limited to the extractors for those sites, so it can't be pointed at any
-  other web page.
+  other web page. A search job runs yt-dlp's YouTube search (YouTube's extractors only) and fetches the result it
+  picks after the same check.
 - **Limits.** No playlists, no live streams, nothing longer than the site's limit (3 hours by default) or bigger than
   its size limit (1 GB by default). One link at a time.
 - **No open ports.** It only makes outgoing HTTPS connections, to your Tastr site and to the music sites.

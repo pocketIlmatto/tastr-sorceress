@@ -66,9 +66,11 @@ class NotFound(Exception):
 class Job:
     """What a plugin is told about a job. Never the helper's key.
 
-    `url` has already passed the allowlist. `limits` holds `max_seconds`, `max_bytes` and `part_bytes`. `hints` may
-    hold `title`, `artist` (strings) and `duration_s` (a number), for sources that search by song; any of them can
-    be missing. `allow_hosts` is the site's allowlist for this job."""
+    `url` has already passed the allowlist; for a search job (the site had no link) it is the link the helper's
+    YouTube search picked. `limits` holds `max_seconds`, `max_bytes` and `part_bytes`. `hints` may hold `title`,
+    `artist`, `words` (strings: the person's extra search words, such as "extended mix") and `duration_s` (a
+    number), for sources that search by song; any of them can be missing. `allow_hosts` is the site's allowlist
+    for this job."""
 
     id: str
     url: str
@@ -109,7 +111,7 @@ def clean_hints(raw: object) -> dict[str, Any]:
     hints: dict[str, Any] = {}
     if not isinstance(raw, dict):
         return hints
-    for name in ("title", "artist"):
+    for name in ("title", "artist", "words"):
         value = raw.get(name)
         if isinstance(value, str) and value.strip():
             hints[name] = "".join(ch for ch in value if ch.isprintable()).strip()[:1000]
