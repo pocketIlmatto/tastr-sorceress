@@ -15,6 +15,8 @@ services:
       - /tmp:size=1536m,mode=1777
     volumes:
       - sorceress-data:/data  # holds only the helper's key
+      # Optional: change how the helper fetches (see "Customising your fetcher" in the README).
+      # - ./config.toml:/data/config.toml:ro
     # No ports: the helper only makes outgoing connections.
 
 volumes:

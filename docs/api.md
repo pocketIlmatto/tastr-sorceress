@@ -35,8 +35,12 @@ can remove one, which revokes its key at once. The site's admin decides who may 
   ```
   {"job_id": "...", "url": "https://www.youtube.com/watch?v=...", "purpose": "moment|track|capture",
    "lease_s": 900, "limits": {"max_seconds": 10800, "max_bytes": 1073741824, "part_bytes": 33554432},
-   "allow_hosts": ["youtube.com", ...]}
+   "allow_hosts": ["youtube.com", ...],
+   "hints": {"title": "...", "artist": "...", "duration_s": 213}}
   ```
+  `hints` is optional, and so is each field in it: what the site knows about the track, for helpers set up to search
+  for a song (in a library or another service) instead of fetching the link. The link is still the job and passes
+  the allowlist first either way.
   Taking a job leases it to this helper for `lease_s`; an expired lease returns the job to the queue (max 3 attempts, then failed).
   Only the key owner's jobs are ever returned.
 - Server allowlist = helper allowlist (both enforce; https only; host equals or ends with "." + entry):
@@ -46,9 +50,13 @@ can remove one, which revokes its key at once. The site's admin decides who may 
   200 `{"n": 1, "bytes": 33554432}`. 409 `not_your_job` / `lease_lost`; 413 `too_big` (part or running total > max_bytes; a total found over it once parts sent at the same time are recorded fails the job); 400 `bad_part` for a part number past what max_bytes can need.
   Re-sending part n replaces it. Each accepted part renews the lease for another `lease_s`. The server streams the body into a multipart upload; it never buffers a whole part.
 - `POST /jobs/<id>/done` `{"parts": 3, "bytes": 81234567, "sha256": "<hex>", "ext": "webm|m4a|opus|mp3|...",
-  "info": {"id", "extractor", "title", "duration", "uploader", "artist", "webpage_url", "upload_date"}}` ->
+  "info": {"id", "extractor", "title", "duration", "uploader", "artist", "webpage_url", "upload_date",
+  "source", "steps"}}` ->
   200 `{"deposit_id": "..."}`. 422 `size_mismatch` when bytes != sum of parts. The server completes the multipart
   upload and continues as for an uploaded file. sha256 is stored, not re-checked.
+  `info.source` (string) names the source that found the audio (`yt-dlp` unless the person set up another) and
+  `info.steps` (list of strings) the steps that ran on the file afterwards, in order; both are optional, short
+  names from the helper's own config, for display.
 - `POST /jobs/<id>/failed` `{"reason": "bot_check|unavailable|too_long|too_big|not_allowed|live|playlist|error",
   "detail": "<= 500 chars>"}` -> 200. The server aborts the multipart upload and shows the reason on the page.
 - `POST /heartbeat` `{"version": "0.1.0", "yt_dlp": "2026.11.23"}` every 5 min -> 200
