@@ -1,6 +1,7 @@
 import os
 import stat
 
+from tastr_sorceress import __version__
 from tastr_sorceress.api import Client
 from tastr_sorceress.keystore import KeyStore
 from tastr_sorceress.pairing import confirm_url, pair
@@ -15,8 +16,8 @@ def test_pairing_shows_code_and_returns_key(site, settings, rec):
     assert f"{site.url}/bank/sorceress" in shown
     start = [r for r in site.requests if r["path"].endswith("/pair/start")][0]
     assert start["json"]["name"] == "test helper"
-    assert start["json"]["version"] == "0.1.0"
-    assert start["headers"]["User-Agent"] == "tastr-sorceress/0.1.0"
+    assert start["json"]["version"] == __version__
+    assert start["headers"]["User-Agent"] == f"tastr-sorceress/{__version__}"
     assert "Authorization" not in start["headers"]
     polls = [r for r in site.requests if r["path"].endswith("/pair/poll")]
     assert len(polls) == 3
@@ -63,7 +64,7 @@ def test_worker_pairs_and_saves_key_0600(site, settings, make_worker):
     assert path.read_text().strip() == "sor_key1"
     assert stat.S_IMODE(os.stat(path).st_mode) == 0o600
     assert os.listdir(settings.data_dir) == ["key"]
-    assert site.heartbeats and site.heartbeats[0]["version"] == "0.1.0"
+    assert site.heartbeats and site.heartbeats[0]["version"] == __version__
     assert site.heartbeats[0]["yt_dlp"]
 
 

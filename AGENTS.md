@@ -35,15 +35,19 @@ By default, with no config file:
   storage, compute or telemetry services, no redirects followed on calls to the site, no connections from a fetch
   to private or local addresses (yt-dlp may follow the music sites' redirects to their media hosts), no open ports.
 - It fetches with the built-in `yt-dlp` source only, limited to the extractors for allowlisted sites (never the
-  generic extractor), with no postprocessors and no ffmpeg. yt-dlp plugins stay off (`YTDLP_NO_PLUGINS`), whatever
+  generic extractor), with no postprocessors and no ffmpeg. A search job (no link) runs yt-dlp's YouTube search
+  with YouTube's extractors only, and the link it picks then goes through the allowlist like any other. yt-dlp plugins stay off (`YTDLP_NO_PLUGINS`), whatever
   the config says.
 - Nothing is kept but the key.
 - The default image has no ffmpeg; a person who wants the `convert` step builds their own image (`examples/`).
 
 Always, for every source and step, built-in or not (`tastr_sorceress/pipeline.py`, `worker.py`):
 
-- The allowlist check comes first and is enforced locally as well as on the site. A source that searches instead of
-  fetching the link gets the same job, after the same check.
+- The allowlist check comes first and is enforced locally as well as on the site (for a search job, on the link the
+  search picked, before anything is downloaded). A source that searches instead of fetching the link gets the same
+  job, after the same check.
+- What the helper logs during a job is sent to the site's job log (`joblog.py`): only the job thread's lines, never
+  the key, best effort, and never in the way of the job.
 - Every plugin call runs under the private-address guard; only hosts the person lists in `[network] local_hosts` are
   exempt, and never for yt-dlp itself.
 - Before upload the file is re-checked: a plain file inside the job's folder, within `max_bytes`, within

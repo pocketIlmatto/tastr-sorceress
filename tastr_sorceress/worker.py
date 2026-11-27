@@ -15,10 +15,12 @@ from .api import Client, NetworkError, Response, Unauthorized
 from .backoff import Backoff
 from .config import Settings
 from .fetch import FetchFailed, clean_limits, fetch, url_allowed
+from .joblog import SiteLog
 from .keystore import KeyStore
 from .pairing import pair
 from .pipeline import Pipeline, build_pipeline
 from .plugins import Job, clean_hints
+from .search import find_song
 from .upload import LeaseLost, UploadError, job_path, sha256_file, upload_parts
 
 log = logging.getLogger(__name__)
@@ -57,6 +59,7 @@ class Worker:
         keystore: KeyStore | None = None,
         pipeline: Pipeline | None = None,
         fetcher: Callable[..., Any] = fetch,
+        searcher: Callable[..., str] = find_song,
         sleep: Callable[[float], None] = time.sleep,
         clock: Callable[[], float] = time.monotonic,
         out: Callable[[str], None] = lambda s: print(s, flush=True),
@@ -77,6 +80,7 @@ class Worker:
         self.long_poll_s = long_poll_s
         self.min_poll_gap = min_poll_gap
         self.part_attempts = part_attempts
+        self.searcher = searcher
         self.backoff = Backoff()
         self.lost_key = threading.Event()
         self.cache_dir = self.cache_dir_for(settings)
@@ -201,25 +205,48 @@ class Worker:
             log.warning("The site did not take the failure report: %s", resp.describe())
 
     def handle(self, job: dict[str, Any]) -> None:
+        """One job, with what is logged meanwhile also sent to the site (joblog.SiteLog)."""
+        with SiteLog(self.client, job["job_id"]):
+            self._handle(job)
+
+    def _handle(self, job: dict[str, Any]) -> None:
         job_id = job["job_id"]
         url = job.get("url")
         allow_hosts = job.get("allow_hosts")
         server_hosts = allow_hosts if isinstance(allow_hosts, list) else None
-        # The allowlist comes before anything else: nothing is fetched or written for a refused link.
+        limits = clean_limits(job.get("limits"))
+        hints = clean_hints(job.get("hints"))
+        log.info("Job %s (%s) taken%s", job_id, job.get("purpose") or "fetch",
+                 f"; hints: {', '.join(f'{k} {v!r}' for k, v in hints.items())}" if hints else "")
+        if job.get("search") is True and url is None:
+            # No link: find one with a YouTube search on the hints. The pick still passes the allowlist below.
+            try:
+                url = self.searcher(hints, limits, server_hosts=server_hosts, cache_dir=self.cache_dir)
+            except FetchFailed as e:
+                self.report_failed(job_id, e.reason, e.detail)
+                return
+            except Exception as e:
+                log.exception("Job %s: the search failed", job_id)
+                self.report_failed(job_id, "error", f"search: {type(e).__name__}: {e}"[:500])
+                return
+        # The allowlist comes before anything is fetched or written: nothing is for a refused link.
         if not url_allowed(url, server_hosts):
             log.warning("Refusing job %s: the link is not on the allowlist", job_id)
             self.report_failed(job_id, "not_allowed", "the link is not an https link to an allowed site")
             return
-        limits = clean_limits(job.get("limits"))
         # What plugins see of the job. Never the key.
-        plugin_job = Job(id=job_id, url=url, limits=dict(limits), hints=clean_hints(job.get("hints")),
+        plugin_job = Job(id=job_id, url=url, limits=dict(limits), hints=hints,
                          allow_hosts=tuple(str(h) for h in server_hosts) if server_hosts is not None else None)
-        log.info("Job %s: fetching %s", job_id, url)
+        log.info("Job %s: fetching %s with %s", job_id, url, self.pipeline.describe())
         os.makedirs(self.settings.tmp_dir, exist_ok=True)
         workdir = tempfile.mkdtemp(prefix=JOB_DIR_PREFIX, dir=self.settings.tmp_dir)
         try:
             fetched = self.pipeline.run(plugin_job, workdir)
+            log.info("Job %s: got %s (%.1f MB, .%s) from %s%s", job_id, fetched.info.get("title") or "the audio",
+                     fetched.size / 1e6, fetched.ext, fetched.info.get("source"),
+                     f", then {', '.join(fetched.info['steps'])}" if fetched.info.get("steps") else "")
             sha = sha256_file(fetched.path)
+            log.debug("Job %s: sha256 %s", job_id, sha)
             parts = upload_parts(self.client, job_id, fetched.path, fetched.size, limits["part_bytes"],
                                  attempts=self.part_attempts, sleep=self.sleep)
             body = {"parts": parts, "bytes": fetched.size, "sha256": sha, "ext": fetched.ext, "info": fetched.info}

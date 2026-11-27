@@ -9,6 +9,7 @@ import os
 import re
 import socket
 import threading
+import time
 from typing import Any, Iterable
 from urllib.parse import urlsplit
 
@@ -266,6 +267,22 @@ def check_info(info: Any, limits: dict[str, int], server_hosts: Iterable[str] | 
         raise FetchFailed("not_allowed", "the link leads to a site that is not on the allowlist")
 
 
+def _describe(info: dict[str, Any]) -> None:
+    """What yt-dlp found, and the format it is about to download, for the job's log."""
+    duration = info.get("duration")
+    log.info("Found [%s] %s by %s, %s long", info.get("extractor") or "?", info.get("title") or "?",
+             info.get("artist") or info.get("uploader") or info.get("channel") or "?",
+             f"{int(duration) // 60}:{int(duration) % 60:02d}" if isinstance(duration, (int, float)) else "?")
+    fmt = info
+    if isinstance(info.get("requested_formats"), list) and info["requested_formats"]:
+        fmt = info["requested_formats"][0]
+    size = fmt.get("filesize") or fmt.get("filesize_approx")
+    if fmt.get("format_id") or fmt.get("acodec"):
+        log.info("Format %s: %s, %s%s%s", fmt.get("format_id") or "?", fmt.get("ext") or "?",
+                 fmt.get("acodec") or "?", f", {fmt['abr']:.0f} kbit/s" if isinstance(fmt.get("abr"), (int, float)) else "",
+                 f", about {size / 1e6:.1f} MB" if isinstance(size, (int, float)) else "")
+
+
 def pick_info(info: dict[str, Any]) -> dict[str, Any]:
     artist = info.get("artist")
     if not artist and isinstance(info.get("artists"), list):
@@ -302,7 +319,7 @@ def fetch(
 
     TooBig = _too_big_class()
     max_bytes = limits["max_bytes"]
-    state = {"too_big": False}
+    state: dict[str, Any] = {"too_big": False, "shown": 0, "started": time.monotonic()}
 
     def hook(d: dict[str, Any]) -> None:
         for key in ("downloaded_bytes", "total_bytes"):
@@ -310,6 +327,14 @@ def fetch(
             if isinstance(value, (int, float)) and value > max_bytes:
                 state["too_big"] = True
                 raise TooBig()
+        got, total = d.get("downloaded_bytes"), d.get("total_bytes") or d.get("total_bytes_estimate")
+        if isinstance(got, (int, float)) and isinstance(total, (int, float)) and total > 0:
+            quarter = min(4, int(got * 4 // total))  # a line at each quarter of the download
+            if quarter > state["shown"]:
+                state["shown"] = quarter
+                speed = d.get("speed")
+                log.info("Downloaded %d%% (%.1f of %.1f MB%s)", quarter * 25, got / 1e6, total / 1e6,
+                         f", {speed / 1e6:.1f} MB/s" if isinstance(speed, (int, float)) and speed else "")
 
     with public_addresses_only(), ydl_class(ydl_options(workdir, cache_dir, max_bytes, hook)) as ydl:
         try:
@@ -317,6 +342,7 @@ def fetch(
         except DownloadError as e:
             raise FetchFailed(map_error(str(e)), clean_detail(str(e))) from None
         check_info(info, limits, server_hosts)
+        _describe(info)
         try:
             ydl.process_ie_result(info, download=True)
         except _TooBigError:
@@ -344,4 +370,5 @@ def fetch(
     ext = path.rsplit(".", 1)[-1].lower()
     if not _EXT.match(ext):
         raise FetchFailed("error", "the download has an unexpected file type")
+    log.info("Downloaded %.1f MB (.%s) in %.1f s", size / 1e6, ext, time.monotonic() - state["started"])
     return Fetched(path=path, ext=ext, info=pick_info(info), size=size)

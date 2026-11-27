@@ -1,4 +1,4 @@
-# tastr-sorceress API contract, v1 (2026-11-25)
+# tastr-sorceress API contract, v1 (2026-11-25; job log and search jobs 2026-11-26)
 
 The HTTP contract between a Tastr site and this helper. The site implements the same contract, so change it only
 together with the site.
@@ -33,14 +33,18 @@ can remove one, which revokes its key at once. The site's admin decides who may 
 ## Jobs
 - `GET /jobs/next?wait=25` -> long-poll up to `wait` s (max 25). 204 no job, or 200:
   ```
-  {"job_id": "...", "url": "https://www.youtube.com/watch?v=...", "purpose": "moment|track|capture",
+  {"job_id": "...", "url": "https://www.youtube.com/watch?v=...", "search": false, "purpose": "moment|track|capture",
    "lease_s": 900, "limits": {"max_seconds": 10800, "max_bytes": 1073741824, "part_bytes": 33554432},
    "allow_hosts": ["youtube.com", ...],
-   "hints": {"title": "...", "artist": "...", "duration_s": 213}}
+   "hints": {"title": "...", "artist": "...", "words": "...", "duration_s": 213}}
   ```
-  `hints` is optional, and so is each field in it: what the site knows about the track, for helpers set up to search
-  for a song (in a library or another service) instead of fetching the link. The link is still the job and passes
-  the allowlist first either way.
+  `hints` is optional, and so is each field in it: what the site knows about the track (the person's own title,
+  artist and extra search `words` over a capture's), for helpers set up to search for a song (in a library or
+  another service) instead of fetching the link. The link is still the job and passes the allowlist first either way.
+  A **search job** has `"url": null` and `"search": true`: the site has no link, and the helper finds one by
+  searching YouTube for `hints` (title required), preferring the result closest to `duration_s`; the link it picks
+  then passes the allowlist like any other, and `done`'s `info.webpage_url` must be that link. The site gives search
+  jobs only to helpers whose last heartbeat says version 0.2.0 or later.
   Taking a job leases it to this helper for `lease_s`; an expired lease returns the job to the queue (max 3 attempts, then failed).
   Only the key owner's jobs are ever returned.
 - Server allowlist = helper allowlist (both enforce; https only; host equals or ends with "." + entry):
@@ -59,6 +63,11 @@ can remove one, which revokes its key at once. The site's admin decides who may 
   names from the helper's own config, for display.
 - `POST /jobs/<id>/failed` `{"reason": "bot_check|unavailable|too_long|too_big|not_allowed|live|playlist|error",
   "detail": "<= 500 chars>"}` -> 200. The server aborts the multipart upload and shows the reason on the page.
+- `POST /jobs/<id>/log` `{"lines": [{"at": 1764195000.5, "level": "debug|info|warning|error", "step": "fetch",
+  "text": "..."}]}` -> 200 `{"kept": n}`. What the helper logged while working on the job, shown on the person's
+  Fetchers page beside the site's own lines. At most 50 lines a call; `text` is cut to 500 characters, `step` to 40.
+  Accepted for a job leased to this helper, or done or failed by it in the last 10 minutes; else 409
+  `not_your_job`. Best effort: the helper drops lines it can't send and stops sending on 404 or 409.
 - `POST /heartbeat` `{"version": "0.1.0", "yt_dlp": "2026.11.23"}` every 5 min -> 200
   `{"min_version": "0.1.0", "latest_version": "0.1.0"}`; the page marks a helper out of date when yt-dlp is > 30 days old.
 
